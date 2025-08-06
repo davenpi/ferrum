@@ -3,4 +3,10 @@ name = "ferrum"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "ferrum"
+# "cdylib" creates a shared library that Python can import
+crate-type = ["cdylib"]
+
 [dependencies]
+pyo3 = { version = "0.25.1", features = ["extension-module"] }
