@@ -1,5 +1,8 @@
 /target
 
+# Notes and other misc files
 notes/
+*.pem
 
+# SkyRL
 SkyRL
