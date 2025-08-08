@@ -1,11 +1,10 @@
-
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 // Equivalent to Python's MessageType = Dict[str, str]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
-    pub role: String,    // "user", "assistant", "system"
+    pub role: String, // "user", "assistant", "system"
     pub content: String,
 }
 
@@ -38,18 +37,18 @@ pub struct InferenceEngineInput {
 // Better than Python strings - we can enumerate all possible stop reasons
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StopReason {
-    Stop,           // Normal completion
-    Length,         // Hit max length
-    Error,          // Some error occurred
-    Timeout,        // Request timed out
-    Other(String),  // Fallback for unknown reasons
+    Stop,          // Normal completion
+    Length,        // Hit max length
+    Error,         // Some error occurred
+    Timeout,       // Request timed out
+    Other(String), // Fallback for unknown reasons
 }
 
 // Rust equivalent of InferenceEngineOutput
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InferenceEngineOutput {
     pub responses: Vec<String>,
-    pub stop_reasons: Vec<StopReason>,  // Much better than Vec<String>!
+    pub stop_reasons: Vec<StopReason>, // Much better than Vec<String>!
 }
 
 // Rust equivalent of NamedWeightUpdateRequest
@@ -57,7 +56,7 @@ pub struct InferenceEngineOutput {
 pub struct NamedWeightUpdateRequest {
     pub name: String,
     pub dtype: String,
-    pub shape: Vec<usize>,  // usize is more idiomatic than i32 for sizes
+    pub shape: Vec<usize>, // usize is more idiomatic than i32 for sizes
     pub extras: Option<HashMap<String, serde_json::Value>>,
 }
 
@@ -73,4 +72,3 @@ pub enum InferenceError {
     #[error("Engine not available")]
     EngineUnavailable,
 }
-
