@@ -5,6 +5,7 @@ use super::types::{
 };
 use async_trait::async_trait;
 use futures::future::join_all;
+use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 pub struct InferenceEngineClient {
@@ -37,15 +38,28 @@ impl InferenceEngineClient {
         &self,
         input: InferenceEngineInput,
     ) -> Result<InferenceEngineOutput, InferenceError> {
-        // TODO: Implement trajectory-based routing (complex batching with ordering)
-        // This is used for multi-turn agent loops with trajectory_ids
-        // Need to:
-        // 1. Group prompts by engine using hash(trajectory_id) % num_engines
-        // 2. Create tasks for each engine group
-        // 3. Execute tasks in parallel
-        // 4. Reconstruct results in original order using indices
-        println!("generate_with_trajectory_routing {:?}", input);
-        todo!("Implement trajectory routing - come back after generate_batched works")
+        let trajectory_ids = input.trajectory_ids.as_ref().ok_or_else(|| {
+            InferenceError::InvalidInput(
+                "trajectory_ids required for trajectory routing".to_string(),
+            )
+        })?;
+
+        // 1. Validate and determine input type
+        let (input_length, is_prompts) = self.validate_and_classify_input(&input)?;
+        self.validate_trajectory_length(trajectory_ids, input_length)?;
+
+        // 2. Group inputs by engine
+        let engine_groups = self.group_by_engine(trajectory_ids);
+
+        // 3. Execute in parallel
+        let (engine_outputs, indices_lists) = self
+            .execute_engine_groups(engine_groups, &input, is_prompts)
+            .await?;
+
+        // 4. Reconstruct results in original order
+        let output = self.reconstruct_output(engine_outputs, indices_lists, input_length)?;
+
+        Ok(output)
     }
 
     async fn generate_batched(
@@ -157,6 +171,131 @@ impl InferenceEngineClient {
             let result = result?;
             responses.extend(result.responses);
             stop_reasons.extend(result.stop_reasons);
+        }
+
+        Ok(InferenceEngineOutput {
+            responses,
+            stop_reasons,
+        })
+    }
+}
+
+// Helper methods
+impl InferenceEngineClient {
+    fn validate_and_classify_input(
+        &self,
+        input: &InferenceEngineInput,
+    ) -> Result<(usize, bool), InferenceError> {
+        match (&input.prompts, &input.prompt_token_ids) {
+            (Some(prompts), None) => Ok((prompts.len(), true)),
+            (None, Some(tokens)) => Ok((tokens.len(), false)),
+            _ => Err(InferenceError::InvalidInput(
+                "Invalid input state in trajectory routing".to_string(),
+            )),
+        }
+    }
+
+    fn validate_trajectory_length(
+        &self,
+        trajectory_ids: &[String],
+        input_length: usize,
+    ) -> Result<(), InferenceError> {
+        if trajectory_ids.len() != input_length {
+            return Err(InferenceError::InvalidInput(format!(
+                "trajectory_ids length ({}) must match input length ({})",
+                trajectory_ids.len(),
+                input_length
+            )));
+        }
+        Ok(())
+    }
+
+    fn group_by_engine(&self, trajectory_ids: &[String]) -> HashMap<usize, Vec<usize>> {
+        let mut engine_groups = HashMap::new();
+
+        for (original_idx, trajectory_id) in trajectory_ids.iter().enumerate() {
+            let engine_idx = self.calculate_engine_index(trajectory_id);
+            engine_groups
+                .entry(engine_idx)
+                .or_insert_with(Vec::new)
+                .push(original_idx);
+        }
+
+        engine_groups
+    }
+
+    async fn execute_engine_groups(
+        &self,
+        engine_groups: HashMap<usize, Vec<usize>>,
+        input: &InferenceEngineInput,
+        is_prompts: bool,
+    ) -> Result<(Vec<InferenceEngineOutput>, Vec<Vec<usize>>), InferenceError> {
+        let mut tasks = Vec::new();
+        let mut indices_lists = Vec::new();
+
+        for (engine_idx, indices) in engine_groups {
+            let engine_input = self.build_engine_input(&indices, input, is_prompts)?;
+            tasks.push(self.engines[engine_idx].generate(engine_input));
+            indices_lists.push(indices);
+        }
+
+        // Execute all tasks in parallel
+        let results = join_all(tasks).await;
+
+        // Check for errors and collect outputs
+        let mut engine_outputs = Vec::new();
+        for result in results {
+            engine_outputs.push(result?);
+        }
+
+        Ok((engine_outputs, indices_lists))
+    }
+
+    fn build_engine_input(
+        &self,
+        indices: &[usize],
+        input: &InferenceEngineInput,
+        is_prompts: bool,
+    ) -> Result<InferenceEngineInput, InferenceError> {
+        if is_prompts {
+            let prompts = input.prompts.as_ref().unwrap();
+            let group_prompts: Vec<_> = indices.iter().map(|&idx| prompts[idx].clone()).collect();
+
+            Ok(InferenceEngineInput {
+                prompts: Some(group_prompts),
+                prompt_token_ids: None,
+                sampling_params: input.sampling_params.clone(),
+                trajectory_ids: None,
+            })
+        } else {
+            let token_ids = input.prompt_token_ids.as_ref().unwrap();
+            let group_token_ids: Vec<_> =
+                indices.iter().map(|&idx| token_ids[idx].clone()).collect();
+
+            Ok(InferenceEngineInput {
+                prompts: None,
+                prompt_token_ids: Some(group_token_ids),
+                sampling_params: input.sampling_params.clone(),
+                trajectory_ids: None,
+            })
+        }
+    }
+
+    fn reconstruct_output(
+        &self,
+        engine_outputs: Vec<InferenceEngineOutput>,
+        indices_lists: Vec<Vec<usize>>,
+        input_length: usize,
+    ) -> Result<InferenceEngineOutput, InferenceError> {
+        let mut responses = vec![String::new(); input_length];
+        let mut stop_reasons =
+            vec![crate::inference::types::StopReason::Other("unset".to_string()); input_length];
+
+        for (indices, output) in indices_lists.iter().zip(engine_outputs.iter()) {
+            for (local_idx, &original_idx) in indices.iter().enumerate() {
+                responses[original_idx] = output.responses[local_idx].clone();
+                stop_reasons[original_idx] = output.stop_reasons[local_idx].clone();
+            }
         }
 
         Ok(InferenceEngineOutput {
