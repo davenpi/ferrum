@@ -1,7 +1,5 @@
 # Ferrum
 
-**High-performance reinforcement learning training framework**
-
 This project is me exploring how we can use Rust to rewrite some parts of the excellent SkyRL (pure Python) to make it even more permformant.
 
 ## Goals
@@ -12,5 +10,5 @@ This project is me exploring how we can use Rust to rewrite some parts of the ex
 - [ ] Measure performance gains
 - [ ] Explore new capabilities!
 
-### Grail
-- [ ] Rebuild architecture around streaming instead of batching
+### Ideas
+- [ ] Build architecture around streaming instead of batching
