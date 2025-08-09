@@ -1,7 +1,6 @@
 use super::engine::InferenceEngine;
 use super::types::{
-    InferenceEngineInput, InferenceEngineOutput, InferenceError, Message, NamedWeightUpdateRequest,
-    SamplingParams,
+    InferenceEngineInput, InferenceEngineOutput, InferenceError, NamedWeightUpdateRequest,
 };
 use async_trait::async_trait;
 use futures::future::join_all;
@@ -70,13 +69,23 @@ impl InferenceEngineClient {
         match (&input.prompts, &input.prompt_token_ids) {
             (Some(prompts), None) => {
                 // We have conversation prompts
-                self.generate_batched_prompts(prompts, &input.sampling_params)
-                    .await
+                self.generate_batched_generic(prompts, |batch_items| InferenceEngineInput {
+                    prompts: Some(batch_items),
+                    prompt_token_ids: None,
+                    sampling_params: input.sampling_params.clone(),
+                    trajectory_ids: None,
+                })
+                .await
             }
             (None, Some(token_ids)) => {
                 // We have token IDs
-                self.generate_batched_token_ids(token_ids, &input.sampling_params)
-                    .await
+                self.generate_batched_generic(token_ids, |batch_items| InferenceEngineInput {
+                    prompts: None,
+                    prompt_token_ids: Some(batch_items),
+                    sampling_params: input.sampling_params.clone(),
+                    trajectory_ids: None,
+                })
+                .await
             }
             _ => {
                 // This should never happen due to validation in generate()
@@ -87,77 +96,26 @@ impl InferenceEngineClient {
         }
     }
 
-    async fn generate_batched_prompts(
+    async fn generate_batched_generic<T: Clone>(
         &self,
-        prompts: &Vec<Vec<Message>>,
-        sampling_params: &Option<SamplingParams>,
+        items: &[T],
+        create_engine_input: impl Fn(Vec<T>) -> InferenceEngineInput,
     ) -> Result<InferenceEngineOutput, InferenceError> {
         let num_engines = self.engines.len();
-        let batch_size = prompts.len().div_ceil(num_engines);
+        let batch_size = items.len().div_ceil(num_engines);
 
         let mut tasks = Vec::new();
 
         for engine_idx in 0..num_engines {
             let start_idx = engine_idx * batch_size;
-            let end_idx = ((engine_idx + 1) * batch_size).min(prompts.len());
+            let end_idx = ((engine_idx + 1) * batch_size).min(items.len());
 
-            if start_idx >= prompts.len() {
+            if start_idx >= items.len() {
                 continue;
             }
 
-            let batch_items = prompts[start_idx..end_idx].to_vec();
-            let engine_input = InferenceEngineInput {
-                prompts: Some(batch_items),
-                prompt_token_ids: None,
-                sampling_params: sampling_params.clone(),
-                trajectory_ids: None,
-            };
-
-            tasks.push(self.engines[engine_idx].generate(engine_input));
-        }
-
-        // Execute all tasks and flatten results
-        let results = join_all(tasks).await;
-        let mut responses = Vec::new();
-        let mut stop_reasons = Vec::new();
-
-        for result in results {
-            let result = result?;
-            responses.extend(result.responses);
-            stop_reasons.extend(result.stop_reasons);
-        }
-
-        Ok(InferenceEngineOutput {
-            responses,
-            stop_reasons,
-        })
-    }
-
-    async fn generate_batched_token_ids(
-        &self,
-        token_ids: &Vec<Vec<i32>>,
-        sampling_params: &Option<SamplingParams>,
-    ) -> Result<InferenceEngineOutput, InferenceError> {
-        let num_engines = self.engines.len();
-        let batch_size = (token_ids.len() + num_engines - 1) / num_engines; // Ceiling division
-
-        let mut tasks = Vec::new();
-
-        for engine_idx in 0..num_engines {
-            let start_idx = engine_idx * batch_size;
-            let end_idx = ((engine_idx + 1) * batch_size).min(token_ids.len());
-
-            if start_idx >= token_ids.len() {
-                continue;
-            }
-
-            let batch_items = token_ids[start_idx..end_idx].to_vec();
-            let engine_input = InferenceEngineInput {
-                prompts: None,
-                prompt_token_ids: Some(batch_items),
-                sampling_params: sampling_params.clone(),
-                trajectory_ids: None,
-            };
+            let batch_items = items[start_idx..end_idx].to_vec();
+            let engine_input = create_engine_input(batch_items);
 
             tasks.push(self.engines[engine_idx].generate(engine_input));
         }
