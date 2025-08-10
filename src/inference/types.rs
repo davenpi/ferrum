@@ -30,7 +30,6 @@ pub struct InferenceEngineInput {
     pub prompts: Option<Vec<Conversation>>,
     pub prompt_token_ids: Option<Vec<Vec<i32>>>,
     pub sampling_params: Option<SamplingParams>,
-    // Using String for trajectory IDs (could be uuid::Uuid if we want type safety)
     pub trajectory_ids: Option<Vec<String>>,
 }
 

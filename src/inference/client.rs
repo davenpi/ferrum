@@ -1,11 +1,25 @@
 use super::engine::InferenceEngine;
 use super::types::{
-    InferenceEngineInput, InferenceEngineOutput, InferenceError, NamedWeightUpdateRequest,
+    InferenceEngineInput, InferenceEngineOutput, InferenceError, Message, NamedWeightUpdateRequest,
+    SamplingParams,
 };
 use async_trait::async_trait;
 use futures::future::join_all;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
+
+#[derive(Debug, Clone)]
+struct TrajectoryItem {
+    trajectory_id: String,
+    original_index: usize,
+    data: TrajectoryData,
+}
+
+#[derive(Debug, Clone)]
+enum TrajectoryData {
+    Prompts(Vec<Message>),
+    Tokens(Vec<i32>),
+}
 
 pub struct InferenceEngineClient {
     engines: Vec<Box<dyn InferenceEngine>>,
@@ -29,7 +43,6 @@ impl InferenceEngineClient {
     fn calculate_engine_index(&self, trajectory_id: &str) -> usize {
         let mut hasher = DefaultHasher::new();
         trajectory_id.hash(&mut hasher);
-        // Equivalent to Python's abs(hash(str(traj_id))) % len(self.engines)
         (hasher.finish() as usize) % self.engines.len()
     }
 
@@ -37,26 +50,19 @@ impl InferenceEngineClient {
         &self,
         input: InferenceEngineInput,
     ) -> Result<InferenceEngineOutput, InferenceError> {
-        let trajectory_ids = input.trajectory_ids.as_ref().ok_or_else(|| {
-            InferenceError::InvalidInput(
-                "trajectory_ids required for trajectory routing".to_string(),
-            )
-        })?;
+        // 1. Convert input to trajectory items
+        let trajectory_items = self.create_trajectory_items(&input)?;
 
-        // 1. Validate and determine input type
-        let (input_length, is_prompts) = self.validate_and_classify_input(&input)?;
-        self.validate_trajectory_length(trajectory_ids, input_length)?;
+        // 2. Group by engine
+        let engine_groups = self.group_trajectories_by_engine(trajectory_items);
 
-        // 2. Group inputs by engine
-        let engine_groups = self.group_by_engine(trajectory_ids);
-
-        // 3. Execute in parallel
-        let (engine_outputs, indices_lists) = self
-            .execute_engine_groups(engine_groups, &input, is_prompts)
+        // 3. Execute engines
+        let engine_results = self
+            .execute_trajectory_groups(engine_groups, &input.sampling_params)
             .await?;
 
-        // 4. Reconstruct results in original order
-        let output = self.reconstruct_output(engine_outputs, indices_lists, input_length)?;
+        // 4. Reconstruct
+        let output = self.reconstruct_by_original_index(engine_results, &input)?;
 
         Ok(output)
     }
@@ -140,119 +146,187 @@ impl InferenceEngineClient {
 
 // Helper methods
 impl InferenceEngineClient {
-    fn validate_and_classify_input(
+    fn create_trajectory_items(
         &self,
         input: &InferenceEngineInput,
-    ) -> Result<(usize, bool), InferenceError> {
-        match (&input.prompts, &input.prompt_token_ids) {
-            (Some(prompts), None) => Ok((prompts.len(), true)),
-            (None, Some(tokens)) => Ok((tokens.len(), false)),
-            _ => Err(InferenceError::InvalidInput(
-                "Invalid input state in trajectory routing".to_string(),
-            )),
+    ) -> Result<Vec<TrajectoryItem>, InferenceError> {
+        let trajectory_ids = input
+            .trajectory_ids
+            .as_ref()
+            .ok_or_else(|| InferenceError::InvalidInput("trajectory_ids required".to_string()))?;
+
+        let mut traj_items = Vec::new();
+
+        if let Some(prompts) = &input.prompts {
+            if prompts.len() != trajectory_ids.len() {
+                return Err(InferenceError::InvalidInput(format!(
+                    "prompts length ({}) must match trajectory_ids length ({})",
+                    prompts.len(),
+                    trajectory_ids.len()
+                )));
+            }
+
+            for (idx, (prompt, traj_id)) in prompts.iter().zip(trajectory_ids.iter()).enumerate() {
+                traj_items.push(TrajectoryItem {
+                    trajectory_id: traj_id.clone(),
+                    original_index: idx,
+                    data: TrajectoryData::Prompts(prompt.clone()),
+                });
+            }
+        } else if let Some(tokens) = &input.prompt_token_ids {
+            if tokens.len() != trajectory_ids.len() {
+                return Err(InferenceError::InvalidInput(format!(
+                    "tokens length ({}) must match trajectory_ids length ({})",
+                    tokens.len(),
+                    trajectory_ids.len()
+                )));
+            }
+
+            for (idx, (token, traj_id)) in tokens.iter().zip(trajectory_ids.iter()).enumerate() {
+                traj_items.push(TrajectoryItem {
+                    trajectory_id: traj_id.clone(),
+                    original_index: idx,
+                    data: TrajectoryData::Tokens(token.clone()),
+                });
+            }
+        } else {
+            return Err(InferenceError::InvalidInput(
+                "Either prompts or prompt_token_ids must be provided".to_string(),
+            ));
         }
+
+        Ok(traj_items)
     }
 
-    fn validate_trajectory_length(
+    fn group_trajectories_by_engine(
         &self,
-        trajectory_ids: &[String],
-        input_length: usize,
-    ) -> Result<(), InferenceError> {
-        if trajectory_ids.len() != input_length {
-            return Err(InferenceError::InvalidInput(format!(
-                "trajectory_ids length ({}) must match input length ({})",
-                trajectory_ids.len(),
-                input_length
-            )));
-        }
-        Ok(())
-    }
-
-    fn group_by_engine(&self, trajectory_ids: &[String]) -> HashMap<usize, Vec<usize>> {
+        traj_items: Vec<TrajectoryItem>,
+    ) -> HashMap<usize, Vec<TrajectoryItem>> {
         let mut engine_groups = HashMap::new();
 
-        for (original_idx, trajectory_id) in trajectory_ids.iter().enumerate() {
-            let engine_idx = self.calculate_engine_index(trajectory_id);
+        for traj_item in traj_items {
+            let engine_idx = self.calculate_engine_index(&traj_item.trajectory_id);
             engine_groups
                 .entry(engine_idx)
                 .or_insert_with(Vec::new)
-                .push(original_idx);
+                .push(traj_item);
         }
 
         engine_groups
     }
 
-    async fn execute_engine_groups(
+    async fn execute_trajectory_groups(
         &self,
-        engine_groups: HashMap<usize, Vec<usize>>,
-        input: &InferenceEngineInput,
-        is_prompts: bool,
-    ) -> Result<(Vec<InferenceEngineOutput>, Vec<Vec<usize>>), InferenceError> {
+        engine_groups: HashMap<usize, Vec<TrajectoryItem>>,
+        sampling_params: &Option<SamplingParams>,
+    ) -> Result<HashMap<usize, (Vec<TrajectoryItem>, InferenceEngineOutput)>, InferenceError> {
         let mut tasks = Vec::new();
-        let mut indices_lists = Vec::new();
+        let mut engine_indices = Vec::new();
+        let mut traj_item_lists = Vec::new();
 
-        for (engine_idx, indices) in engine_groups {
-            let engine_input = self.build_engine_input(&indices, input, is_prompts)?;
+        for (engine_idx, traj_items) in engine_groups {
+            let engine_input =
+                self.build_engine_input_from_traj_items(&traj_items, sampling_params)?;
+
             tasks.push(self.engines[engine_idx].generate(engine_input));
-            indices_lists.push(indices);
+            engine_indices.push(engine_idx);
+            traj_item_lists.push(traj_items);
         }
 
-        // Execute all tasks in parallel
         let results = join_all(tasks).await;
 
-        // Check for errors and collect outputs
-        let mut engine_outputs = Vec::new();
-        for result in results {
-            engine_outputs.push(result?);
+        // Rebuild the semantic mapping
+        let mut engine_results = HashMap::new();
+        for ((engine_idx, traj_items), result) in engine_indices
+            .into_iter()
+            .zip(traj_item_lists.into_iter())
+            .zip(results.into_iter())
+        {
+            engine_results.insert(engine_idx, (traj_items, result?));
         }
 
-        Ok((engine_outputs, indices_lists))
+        Ok(engine_results)
     }
 
-    fn build_engine_input(
+    fn build_engine_input_from_traj_items(
         &self,
-        indices: &[usize],
-        input: &InferenceEngineInput,
-        is_prompts: bool,
+        traj_items: &[TrajectoryItem],
+        sampling_params: &Option<SamplingParams>,
     ) -> Result<InferenceEngineInput, InferenceError> {
+        if traj_items.is_empty() {
+            return Err(InferenceError::InvalidInput("Empty batch".to_string()));
+        }
+
+        // Check if all batches are the same type
+        let is_prompts = matches!(traj_items[0].data, TrajectoryData::Prompts(_));
+
         if is_prompts {
-            let prompts = input.prompts.as_ref().unwrap();
-            let group_prompts: Vec<_> = indices.iter().map(|&idx| prompts[idx].clone()).collect();
+            let mut prompts = Vec::new();
+            for traj_item in traj_items {
+                if let TrajectoryData::Prompts(prompt) = &traj_item.data {
+                    prompts.push(prompt.clone());
+                } else {
+                    return Err(InferenceError::InvalidInput(
+                        "Mixed prompt and token data in same batch".to_string(),
+                    ));
+                }
+            }
 
             Ok(InferenceEngineInput {
-                prompts: Some(group_prompts),
+                prompts: Some(prompts),
                 prompt_token_ids: None,
-                sampling_params: input.sampling_params.clone(),
+                sampling_params: sampling_params.clone(),
                 trajectory_ids: None,
             })
         } else {
-            let token_ids = input.prompt_token_ids.as_ref().unwrap();
-            let group_token_ids: Vec<_> =
-                indices.iter().map(|&idx| token_ids[idx].clone()).collect();
+            let mut tokens = Vec::new();
+            for traj_item in traj_items {
+                if let TrajectoryData::Tokens(token) = &traj_item.data {
+                    tokens.push(token.clone());
+                } else {
+                    return Err(InferenceError::InvalidInput(
+                        "Mixed prompt and token data in same batch".to_string(),
+                    ));
+                }
+            }
 
             Ok(InferenceEngineInput {
                 prompts: None,
-                prompt_token_ids: Some(group_token_ids),
-                sampling_params: input.sampling_params.clone(),
+                prompt_token_ids: Some(tokens),
+                sampling_params: sampling_params.clone(),
                 trajectory_ids: None,
             })
         }
     }
 
-    fn reconstruct_output(
+    fn reconstruct_by_original_index(
         &self,
-        engine_outputs: Vec<InferenceEngineOutput>,
-        indices_lists: Vec<Vec<usize>>,
-        input_length: usize,
+        engine_results: HashMap<usize, (Vec<TrajectoryItem>, InferenceEngineOutput)>,
+        original_input: &InferenceEngineInput,
     ) -> Result<InferenceEngineOutput, InferenceError> {
-        let mut responses = vec![String::new(); input_length];
-        let mut stop_reasons =
-            vec![crate::inference::types::StopReason::Other("unset".to_string()); input_length];
+        // Figure out total length
+        let total_length = if let Some(prompts) = &original_input.prompts {
+            prompts.len()
+        } else if let Some(tokens) = &original_input.prompt_token_ids {
+            tokens.len()
+        } else {
+            return Err(InferenceError::InvalidInput("No input data".to_string()));
+        };
 
-        for (indices, output) in indices_lists.iter().zip(engine_outputs.iter()) {
-            for (local_idx, &original_idx) in indices.iter().enumerate() {
-                responses[original_idx] = output.responses[local_idx].clone();
-                stop_reasons[original_idx] = output.stop_reasons[local_idx].clone();
+        let mut responses = vec![String::new(); total_length];
+        let mut stop_reasons =
+            vec![crate::inference::types::StopReason::Other("unset".to_string()); total_length];
+
+        // Now we can iterate semantically over the engine results
+        for (_, (traj_items, output)) in engine_results {
+
+            // Place each result back in its original position
+            for (traj_item, (response, stop_reason)) in traj_items
+                .iter()
+                .zip(output.responses.iter().zip(output.stop_reasons.iter()))
+            {
+                responses[traj_item.original_index] = response.clone();
+                stop_reasons[traj_item.original_index] = stop_reason.clone();
             }
         }
 
@@ -325,7 +399,6 @@ impl InferenceEngine for InferenceEngineClient {
         Ok(())
     }
 
-    // TODO: Implement the remaining methods...
     async fn init_weight_update_communicator(
         &self,
         master_addr: String,
@@ -413,5 +486,161 @@ impl InferenceEngine for InferenceEngineClient {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_generate_with_trajectory_routing_three_prompts() {
+        // Arrange
+        let client = InferenceEngineClient {
+            engines: vec![
+                Box::new(MockEngine::new("Engine0")),
+                Box::new(MockEngine::new("Engine1")),
+                Box::new(MockEngine::new("Engine2")),
+            ],
+        };
+
+        // Create input with 3 prompts and trajectory IDs
+        let input = InferenceEngineInput {
+            prompts: Some(vec![
+                vec![Message {
+                    role: "user".to_string(),
+                    content: "Prompt 1".to_string(),
+                }],
+                vec![Message {
+                    role: "user".to_string(),
+                    content: "Prompt 2".to_string(),
+                }],
+                vec![Message {
+                    role: "user".to_string(),
+                    content: "Prompt 3".to_string(),
+                }],
+            ]),
+            prompt_token_ids: None,
+            sampling_params: Some(SamplingParams {
+                temperature: Some(0.7),
+                max_tokens: Some(100),
+                top_p: Some(0.9),
+                top_k: Some(40),
+                stop: None,
+                extra: None,
+            }),
+            trajectory_ids: Some(vec![
+                "traj_001".to_string(),
+                "traj_002".to_string(),
+                "traj_003".to_string(),
+            ]),
+        };
+
+        // Act
+        let result = client.generate_with_trajectory_routing(input).await;
+
+        // Assert
+        assert!(result.is_ok(), "Should succeed with valid input");
+        let output = result.unwrap();
+
+        // Should get back 3 responses in original order
+        assert_eq!(output.responses.len(), 3, "Should have 3 responses");
+        assert_eq!(output.stop_reasons.len(), 3, "Should have 3 stop reasons");
+
+        // Responses should be in original order (Engine0 responds with "Response from Engine0", etc.)
+        assert!(
+            output.responses[0].contains("Engine"),
+            "First response should be from an engine"
+        );
+        assert!(
+            output.responses[1].contains("Engine"),
+            "Second response should be from an engine"
+        );
+        assert!(
+            output.responses[2].contains("Engine"),
+            "Third response should be from an engine"
+        );
+    }
+
+    struct MockEngine {
+        name: String,
+    }
+
+    impl MockEngine {
+        fn new(name: &str) -> Self {
+            MockEngine {
+                name: name.to_string(),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl InferenceEngine for MockEngine {
+        fn tp_size(&self) -> usize {
+            1
+        }
+
+        async fn generate(
+            &self,
+            input: InferenceEngineInput,
+        ) -> Result<InferenceEngineOutput, InferenceError> {
+            // Return responses that identify which engine processed them
+            let num_prompts = if let Some(prompts) = &input.prompts {
+                prompts.len()
+            } else if let Some(tokens) = &input.prompt_token_ids {
+                tokens.len()
+            } else {
+                return Err(InferenceError::InvalidInput(
+                    "No input provided".to_string(),
+                ));
+            };
+
+            let responses: Vec<String> = (0..num_prompts)
+                .map(|i| format!("Response from {} for item {}", self.name, i))
+                .collect();
+
+            let stop_reasons = vec![crate::inference::types::StopReason::Stop; num_prompts];
+
+            Ok(InferenceEngineOutput {
+                responses,
+                stop_reasons,
+            })
+        }
+
+        async fn wake_up(&self, _tags: Option<Vec<String>>) -> Result<(), InferenceError> {
+            Ok(())
+        }
+
+        async fn sleep(&self, _level: Option<i32>) -> Result<(), InferenceError> {
+            Ok(())
+        }
+
+        async fn init_weight_update_communicator(
+            &self,
+            _master_addr: String,
+            _master_port: u16,
+            _rank_offset: usize,
+            _world_size: usize,
+            _group_name: String,
+            _backend: String,
+            _override_existing: bool,
+        ) -> Result<(), InferenceError> {
+            Ok(())
+        }
+
+        async fn update_named_weight(
+            &self,
+            _request: NamedWeightUpdateRequest,
+        ) -> Result<(), InferenceError> {
+            Ok(())
+        }
+
+        async fn teardown(&self) -> Result<(), InferenceError> {
+            Ok(())
+        }
+
+        async fn reset_prefix_cache(&self) -> Result<(), InferenceError> {
+            Ok(())
+        }
     }
 }
