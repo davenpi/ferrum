@@ -1,25 +1,10 @@
-[package]
-name = "ferrum"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = ["ferrum", "ferrum-macros"]
+resolver = "2"
 
-[lib]
-name = "ferrum"
-# "cdylib" creates a shared library that Python can import
-crate-type = ["cdylib", "rlib"]
-
-[dependencies]
-futures = "0.3"
-pyo3 = { version = "0.25.1", features = ["extension-module"] }
+# Workspace-level dependencies (optional but helpful)
+[workspace.dependencies]
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
-thiserror = "1.0"  # Better error types
-tracing = "0.1"    # Logging/observability
 async-trait = "0.1"
-
-
-[[example]]
-name = "simple_task"
-path = "examples/simple_task.rs"

@@ -78,6 +78,7 @@ name = "ferrum"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "ferrum-macros",
  "futures",
  "pyo3",
  "serde",
@@ -86,6 +87,15 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "ferrum-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
