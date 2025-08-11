@@ -19,7 +19,7 @@ pub fn task(_attr: TokenStream, item: TokenStream) -> TokenStream {
     
     // Generate the new function that returns a TaskWrapper
     let expanded = quote! {
-        #fn_vis fn #fn_name(#fn_inputs) -> impl ::ferrum::runtime::DistributedTask<Output = #output_type> {
+        #fn_vis fn #fn_name(#fn_inputs) -> impl ::ferrum::runtime::Task<Output = #output_type> {
             ::ferrum::runtime::TaskWrapper::new(|| async move #fn_body)
         }
     };
