@@ -319,7 +319,6 @@ impl InferenceEngineClient {
 
         // Now we can iterate semantically over the engine results
         for (_, (traj_items, output)) in engine_results {
-
             // Place each result back in its original position
             for (traj_item, (response, stop_reason)) in traj_items
                 .iter()
