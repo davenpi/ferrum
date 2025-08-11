@@ -1,9 +1,10 @@
 # Ferrum
 
-This project is me exploring how we can use Rust to rewrite some parts of the excellent SkyRL (pure Python) to make it even more permformant.
+This project is me exploring how to bring some of Ray to Rust and then build an RL framework around it.
 
 ## Goals
 
+- [ ] Clean API for Ray-like behavior 
 - [ ] Borrow insights from the SkyRL architecture 
 - [ ] Identify components where Rust makes sense (inference engine, environment, generator)
 - [ ] Reimplement each
@@ -11,4 +12,4 @@ This project is me exploring how we can use Rust to rewrite some parts of the ex
 - [ ] Explore new capabilities!
 
 ### Ideas
-- [ ] Build architecture around streaming instead of batching
+- [ ] Build RL framework architecture around streaming instead of batching
