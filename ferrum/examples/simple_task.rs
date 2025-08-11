@@ -10,33 +10,33 @@ async fn expensive_computation(x: i32) -> i32 {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🚀 Starting Ferrum task example");
-
-    // Create a scheduler
+    println!("🚀 Starting Ferrum handle example");
+    
     let scheduler = LocalScheduler::new();
-
-    // Create a distributed task using our macro
-    let task = ferrum_task!(|| async { expensive_computation(42).await });
-
-    println!("📤 Submitting task...");
-
-    // Submit and wait for result
-    let result = scheduler.submit(task).await?;
-
+    
+    // Submit returns a handle
+    let handle = scheduler.submit(ferrum_task!(|| async {
+        expensive_computation(42).await
+    }));
+    
+    println!("📤 Task submitted with ID: {}", handle.id());
+    
+    // Await when ready
+    let result = handle.await?;
     println!("✅ Task completed! Result: {}", result);
-
-    // Let's try multiple tasks
-    println!("\n🔄 Running multiple tasks...");
-
-    // Create tasks individually and submit them
-    let values = vec![1, 2, 3];
-
-    for (i, value) in values.into_iter().enumerate() {
-        let task = ferrum_task!(move || async move { expensive_computation(value).await });
-        let result = scheduler.submit(task).await?;
-        println!("Task {}: {}", i + 1, result);
+    
+    // Batch example
+    println!("\n🔄 Running batch tasks...");
+    let handles: Vec<_> = (1..=3)
+        .map(|i| scheduler.submit(ferrum_task!(move || async move {
+            expensive_computation(i).await
+        })))
+        .collect();
+    
+    let results = futures::future::join_all(handles).await;
+    for (i, result) in results.into_iter().enumerate() {
+        println!("Task {}: {:?}", i + 1, result);
     }
-
-    println!("\n🎉 All tasks completed!");
+    
     Ok(())
 }

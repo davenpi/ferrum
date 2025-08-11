@@ -1,17 +1,18 @@
-use crate::runtime::task::DistributedTask;
+use crate::runtime::handle::TaskHandle;
+use crate::runtime::task::Task;
 use async_trait::async_trait;
+use tokio::sync::oneshot;
+use uuid::Uuid;
 
 #[async_trait]
 pub trait Scheduler: Send + Sync {
-    async fn submit<T>(&self, task: T) -> Result<T::Output, String>
+    fn submit<T>(&self, task: T) -> TaskHandle<T::Output>
     where
-        T: DistributedTask + 'static;
+        T: Task + 'static;
 }
 
-// Simple local scheduler to start with
-pub struct LocalScheduler {
-    // We'll add state here as we build it out
-}
+// Simple local scheduler
+pub struct LocalScheduler {}
 
 impl LocalScheduler {
     pub fn new() -> Self {
@@ -21,11 +22,19 @@ impl LocalScheduler {
 
 #[async_trait]
 impl Scheduler for LocalScheduler {
-    async fn submit<T>(&self, task: T) -> Result<T::Output, String>
+    fn submit<T>(&self, task: T) -> TaskHandle<T::Output>
     where
-        T: DistributedTask + 'static,
+        T: Task + 'static,
     {
-        // For now, just execute locally
-        Ok(task.call().await)
+        let task_id = Uuid::new_v4();
+        let (sender, receiver) = oneshot::channel();
+        
+        // Spawn the task execution
+        tokio::spawn(async move {
+            let result = task.call().await;
+            let _ = sender.send(Ok(result));
+        });
+        
+        TaskHandle::new(task_id, receiver)
     }
 }
