@@ -60,8 +60,10 @@ pub fn task(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     // Generate unique task struct name
     let task_struct_name = syn::Ident::new(
-        &format!("{}Task", 
-            fn_name.to_string()
+        &format!(
+            "{}Task",
+            fn_name
+                .to_string()
                 .split('_')
                 .map(|word| {
                     let mut chars = word.chars();

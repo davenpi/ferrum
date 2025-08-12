@@ -1,9 +1,11 @@
 pub mod global;
 pub mod handle;
+pub mod result_source;
 pub mod scheduler;
 pub mod task;
 
 pub use global::{SchedulerConfig, init, init_with_config, submit};
 pub use handle::TaskHandle;
+pub use result_source::{LocalResultSource, ResultSource};
 pub use scheduler::{LocalScheduler, Scheduler};
 pub use task::Task;
