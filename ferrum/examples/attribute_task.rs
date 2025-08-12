@@ -1,12 +1,10 @@
-use ferrum::task;
-
-#[task]
+#[ferrum::task]
 async fn simple_computation(x: i32) -> i32 {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     x * x
 }
 
-#[task]
+#[ferrum::task]
 fn simple_computation_2(x: i32) -> i32 {
     x * x
 }
