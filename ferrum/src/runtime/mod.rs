@@ -1,9 +1,9 @@
+pub mod global;
 pub mod handle;
-pub mod macros;
 pub mod scheduler;
 pub mod task;
 
-pub use task::{Task, TaskResult, TaskWrapper};
-pub use scheduler::{Scheduler, LocalScheduler};
+pub use global::{SchedulerConfig, init, init_with_config, submit};
 pub use handle::TaskHandle;
-pub use macros::*;
+pub use scheduler::{LocalScheduler, Scheduler};
+pub use task::Task;

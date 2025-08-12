@@ -28,13 +28,13 @@ impl Scheduler for LocalScheduler {
     {
         let task_id = Uuid::new_v4();
         let (sender, receiver) = oneshot::channel();
-        
+
         // Spawn the task execution
         tokio::spawn(async move {
             let result = task.call().await;
             let _ = sender.send(Ok(result));
         });
-        
+
         TaskHandle::new(task_id, receiver)
     }
 }
