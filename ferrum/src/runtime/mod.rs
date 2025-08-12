@@ -2,6 +2,7 @@ pub mod global;
 pub mod handle;
 pub mod result_source;
 pub mod scheduler;
+pub mod service;
 pub mod task;
 
 pub use global::{SchedulerConfig, init, init_with_config, submit};
