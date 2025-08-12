@@ -2,10 +2,10 @@ use async_trait::async_trait;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
-use crate::runtime::{LocalResultSource, TaskHandle};
+use crate::runtime::{error::Error, LocalResultSource, TaskHandle};
 
 pub type ServiceId = Uuid;
-pub type ServiceResult<T> = Result<T, String>;
+pub type ServiceResult<T> = Result<T, Error>;
 
 #[async_trait]
 pub trait Service: Send {
@@ -21,6 +21,7 @@ struct ServiceRequest {
 
 // Sequential runner that owns the service instance
 pub struct ServiceRunner<S: Service> {
+    #[allow(dead_code)] // TODO: remove when we use `id`
     id: ServiceId,
     service: S,
     rx: mpsc::Receiver<ServiceRequest>,
@@ -79,9 +80,12 @@ impl ServiceAddress {
             Ok(_) => (),
             Err(err) => {
                 let req = err.into_inner();
-                let _ = req
-                    .respond_to
-                    .send(Err(format!("Service {id} unavailable", id = self.id)));
+                let e = if self.tx.is_closed() {
+                    Error::ServiceUnavailable
+                } else {
+                    Error::QueueFull
+                };
+                let _ = req.respond_to.send(Err(e));
             }
         }
 

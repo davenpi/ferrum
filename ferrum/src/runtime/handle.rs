@@ -4,13 +4,14 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use crate::runtime::error::Error;
 use crate::runtime::result_source::{LocalResultSource, ResultSource};
 use uuid::Uuid;
 
-// TaskHandle is now generic over the result source
+/// A handle to a task.
 pub struct TaskHandle<T, S = LocalResultSource<T>>
 where
-    T: Send + Sync,
+    T: Send + 'static,
     S: ResultSource<T>,
 {
     id: Uuid,
@@ -21,7 +22,7 @@ where
 // Manual Debug implementation - works regardless of whether T implements Debug
 impl<T, S> fmt::Debug for TaskHandle<T, S>
 where
-    T: Send + Sync,
+    T: Send + 'static,
     S: ResultSource<T> + fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -35,7 +36,7 @@ where
 
 impl<T, S> TaskHandle<T, S>
 where
-    T: Send + Sync,
+    T: Send + 'static,
     S: ResultSource<T>,
 {
     pub(crate) fn new(id: Uuid, source: S) -> Self {
@@ -50,9 +51,7 @@ where
         self.id
     }
 
-    pub async fn cancel(self) -> Result<(), String> {
-        // TODO: Implement cancellation logic based on source type
-        // For now, just drop the source
+    pub async fn cancel(self) -> Result<(), Error> {
         drop(self.source);
         Ok(())
     }
@@ -60,10 +59,10 @@ where
 
 impl<T, S> Future for TaskHandle<T, S>
 where
-    T: Send + Sync,
+    T: Send + 'static,
     S: ResultSource<T>,
 {
-    type Output = Result<T, String>;
+    type Output = Result<T, Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // SAFETY: We never move out of the pinned field

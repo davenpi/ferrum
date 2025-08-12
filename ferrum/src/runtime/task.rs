@@ -1,9 +1,8 @@
-use serde::{Deserialize, Serialize};
 use std::future::Future;
+use std::pin::Pin;
 
-// task.rs - clean, no IDs
-pub trait Task: Send + Sync {
-    type Output: Send + Sync + Serialize + for<'de> Deserialize<'de>;
-    type Future: Future<Output = Self::Output> + Send;
-    fn call(self) -> Self::Future;
+// A task is something we can move to a worker and await a result from.
+pub trait Task: Send + 'static {
+    type Output: Send + 'static;
+    fn call(self) -> Pin<Box<dyn Future<Output = Self::Output> + Send>>;
 }

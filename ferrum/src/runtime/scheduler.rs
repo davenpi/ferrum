@@ -1,15 +1,14 @@
-use crate::runtime::handle::TaskHandle;
-use crate::runtime::result_source::LocalResultSource;
-use crate::runtime::task::Task;
+use crate::runtime::{Error, handle::TaskHandle, result_source::LocalResultSource, task::Task};
 use async_trait::async_trait;
+use std::future::Future;
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
 #[async_trait]
 pub trait Scheduler: Send + Sync {
-    type Handle<T>: Future<Output = Result<T, String>> + Send
+    type Handle<T>: Future<Output = Result<T, Error>> + Send
     where
-        T: Send + Sync + 'static;
+        T: Send + 'static;
 
     fn submit<T>(&self, task: T) -> Self::Handle<T::Output>
     where
@@ -30,14 +29,14 @@ impl Scheduler for LocalScheduler {
     type Handle<T>
         = TaskHandle<T, LocalResultSource<T>>
     where
-        T: Send + Sync + 'static;
+        T: Send + 'static;
 
     fn submit<T>(&self, task: T) -> Self::Handle<T::Output>
     where
         T: Task + 'static,
     {
         let task_id = Uuid::new_v4();
-        let (sender, receiver) = oneshot::channel();
+        let (sender, receiver) = oneshot::channel::<Result<T::Output, Error>>();
 
         // Spawn the task execution
         tokio::spawn(async move {

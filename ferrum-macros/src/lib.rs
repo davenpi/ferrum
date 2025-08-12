@@ -87,22 +87,17 @@ pub fn task(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
             impl ::ferrum::runtime::Task for #task_struct_name {
                 type Output = #output_type;
-                type Future = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = #output_type> + Send>>;
 
-                fn call(self) -> Self::Future {
-                    // Extract captured parameters
+                fn call(self) -> ::std::pin::Pin<
+                    Box<dyn ::std::future::Future<Output = #output_type> + Send>
+                > {
                     #(let #param_names = self.#param_names;)*
-
-                    // Execute original function body
                     Box::pin(async move #fn_body)
                 }
             }
 
             // Create task with captured parameters and submit
-            let task = #task_struct_name {
-                #(#param_names),*
-            };
-
+            let task = #task_struct_name { #(#param_names),* };
             ::ferrum::runtime::submit(task)
         }
     };
