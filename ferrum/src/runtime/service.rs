@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
-use crate::runtime::{error::Error, LocalResultSource, TaskHandle};
+use crate::runtime::{LocalResultSource, TaskHandle, error::Error};
 
 pub type ServiceId = Uuid;
 pub type ServiceResult<T> = Result<T, Error>;

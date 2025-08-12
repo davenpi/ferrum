@@ -3,20 +3,21 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use crate::runtime::error::Error;
 use crate::runtime::result_source::{LocalResultSource, ResultSource};
+use pin_project_lite::pin_project;
 use uuid::Uuid;
 
-/// A handle to a task.
-pub struct TaskHandle<T, S = LocalResultSource<T>>
-where
-    T: Send + 'static,
-    S: ResultSource<T>,
-{
-    id: Uuid,
-    source: S,
-    _phantom: PhantomData<T>,
+pin_project! {
+    /// A handle to a task.
+    pub struct TaskHandle<T, S = LocalResultSource<T>> {
+        id: Uuid,
+        #[pin]
+        source: S,
+        _phantom: PhantomData<T>,
+    }
 }
 
 // Manual Debug implementation - works regardless of whether T implements Debug
@@ -55,6 +56,25 @@ where
         drop(self.source);
         Ok(())
     }
+
+    /// Transform the result of this task handle
+    pub fn map<U, F>(self, f: F) -> impl Future<Output = Result<U, Error>> + Send
+    where
+        U: Send + 'static,
+        F: FnOnce(T) -> U + Send + 'static,
+    {
+        async move { self.await.map(f) }
+    }
+
+    /// Add a timeout to this task handle
+    pub fn timeout(self, dur: Duration) -> impl Future<Output = Result<T, Error>> + Send {
+        async move {
+            match tokio::time::timeout(dur, self).await {
+                Ok(r) => r,
+                Err(_) => Err(Error::Timeout),
+            }
+        }
+    }
 }
 
 impl<T, S> Future for TaskHandle<T, S>
@@ -64,10 +84,9 @@ where
 {
     type Output = Result<T, Error>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // SAFETY: We never move out of the pinned field
-        let source = unsafe { self.as_mut().map_unchecked_mut(|s| &mut s.source) };
-        source.poll(cx)
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // Safe pin projection using pin-project-lite
+        self.project().source.poll(cx)
     }
 }
 

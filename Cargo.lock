@@ -80,6 +80,7 @@ dependencies = [
  "async-trait",
  "ferrum-macros",
  "futures",
+ "pin-project-lite",
  "pyo3",
  "serde",
  "serde_json",
