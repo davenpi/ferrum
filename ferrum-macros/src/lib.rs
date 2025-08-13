@@ -6,7 +6,7 @@ use syn::{FnArg, ItemFn, Pat, ReturnType, parse_macro_input};
 ///
 /// This macro handles the boilerplate of creating a `Task` struct,
 /// implementing the `Task` trait, and submitting it to the `ferrum` runtime.
-/// It enables you to define a task using a familiar async function syntax.
+/// It enables you to define a task using a familiar function syntax.
 ///
 /// The macro transforms a function like this:
 ///
