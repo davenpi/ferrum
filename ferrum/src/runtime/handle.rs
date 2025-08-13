@@ -11,7 +11,21 @@ use pin_project_lite::pin_project;
 use uuid::Uuid;
 
 pin_project! {
-    /// A handle to a task.
+    /// A handle to a submitted task, which can be awaited to get the result.
+    ///
+    /// `TaskHandle` is a future that represents the completion of a task scheduled
+    /// on a runtime. When awaited, it yields the output of the task.
+    ///
+    /// This struct is a wrapper around a `ResultSource`, which is the actual
+    /// future that waits for the task's result to become available.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T`: The output type of the task. This is the value that the future will
+    ///        resolve to upon completion.
+    /// * `S`: The specific implementation of `ResultSource` used to retrieve
+    ///        the result. It defaults to `LocalResultSource<T>` for the
+    ///        local scheduler.
     pub struct TaskHandle<T, S = LocalResultSource<T>> {
         id: Uuid,
         #[pin]
