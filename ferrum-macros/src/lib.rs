@@ -2,6 +2,38 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{FnArg, ItemFn, Pat, ReturnType, parse_macro_input};
 
+/// A macro to transform a function into a runnable task.
+///
+/// This macro handles the boilerplate of creating a `Task` struct,
+/// implementing the `Task` trait, and submitting it to the `ferrum` runtime.
+/// It enables you to define a task using a familiar async function syntax.
+///
+/// The macro transforms a function like this:
+///
+/// ```ignore
+/// #[task]
+/// async fn my_task(name: String) -> String {
+///     // ... async logic here
+/// }
+/// ```
+///
+/// into a function that returns a `TaskHandle`:
+///
+/// ```ignore
+/// fn my_task(name: String) -> ::ferrum::runtime::TaskHandle<String> {
+///     // ... boilerplate to create and submit the task
+/// }
+/// ```
+///
+/// The function's parameters are captured and moved into an anonymous struct
+/// that implements the `Task` trait, which is then submitted to the runtime.
+///
+/// # Panics
+///
+/// This macro will cause a compile-time panic if:
+/// * The function has no return type.
+/// * The function has a `self` parameter (e.g., `&self` or `self`).
+/// * The function's parameters are not simple identifiers (e.g., `(a, b)`).
 #[proc_macro_attribute]
 pub fn task(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(item as ItemFn);
