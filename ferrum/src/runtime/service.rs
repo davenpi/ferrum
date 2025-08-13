@@ -3,6 +3,8 @@ use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 use crate::runtime::{LocalResultSource, TaskHandle, error::Error};
+use serde::{de::DeserializeOwned, Serialize};
+use crate::runtime::codec::JsonResultSource;
 
 pub type ServiceId = Uuid;
 pub type ServiceResult<T> = Result<T, Error>;
@@ -159,5 +161,43 @@ impl ServiceAddress {
         }
 
         TaskHandle::new(call_id, LocalResultSource::new(res_rx))
+    }
+
+    pub fn call_json<T, A>(&self, method: &str, args: &A) -> TaskHandle<T, JsonResultSource<T>>
+    where
+        T: Send + 'static + DeserializeOwned,
+        A: Serialize,
+    {
+        let call_id = Uuid::new_v4();
+        let (res_tx, res_rx) = oneshot::channel::<ServiceResult<Vec<u8>>>();
+
+        let payload = match serde_json::to_vec(args) {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = res_tx.send(Err(Error::Serialize(e.to_string())));
+                return TaskHandle::new(call_id, JsonResultSource::from_receiver(res_rx));
+            }
+        };
+
+        let req = ServiceRequest {
+            method: method.to_string(),
+            payload,
+            respond_to: res_tx,
+        };
+
+        match self.tx.try_send(req) {
+            Ok(()) => {}
+            Err(err) => {
+                let req = err.into_inner();
+                let e = if self.tx.is_closed() {
+                    Error::ServiceUnavailable
+                } else {
+                    Error::QueueFull
+                };
+                let _ = req.respond_to.send(Err(e));
+            }
+        }
+
+        TaskHandle::new(call_id, JsonResultSource::from_receiver(res_rx))
     }
 }
