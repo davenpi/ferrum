@@ -1,4 +1,4 @@
-use crate::inference::types::*;
+use crate::inference_old::types::*;
 use async_trait::async_trait;
 
 #[async_trait]

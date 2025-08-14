@@ -315,7 +315,7 @@ impl InferenceEngineClient {
 
         let mut responses = vec![String::new(); total_length];
         let mut stop_reasons =
-            vec![crate::inference::types::StopReason::Other("unset".to_string()); total_length];
+            vec![crate::inference_old::types::StopReason::Other("unset".to_string()); total_length];
 
         // Now we can iterate semantically over the engine results
         for (_, (traj_items, output)) in engine_results {
@@ -598,7 +598,7 @@ mod tests {
                 .map(|i| format!("Response from {} for item {}", self.name, i))
                 .collect();
 
-            let stop_reasons = vec![crate::inference::types::StopReason::Stop; num_prompts];
+            let stop_reasons = vec![crate::inference_old::types::StopReason::Stop; num_prompts];
 
             Ok(InferenceEngineOutput {
                 responses,
