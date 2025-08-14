@@ -2,7 +2,7 @@ use super::errors::InferenceError;
 use async_trait::async_trait;
 
 #[async_trait]
-pub trait InferenceClient<O, A>: Clone + Send + Sync + 'static {
+pub trait Inference<O, A>: Clone + Send + Sync + 'static {
     async fn infer(&self, version_id: u64, obs: Vec<O>)
     -> Result<InferResponse<A>, InferenceError>;
     async fn init_communication(&mut self, config: CommConfig) -> Result<(), InferenceError>;
