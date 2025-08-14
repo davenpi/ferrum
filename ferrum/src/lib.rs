@@ -1,3 +1,4 @@
+pub mod actor;
 pub mod control;
 pub mod env;
 pub mod inference;
