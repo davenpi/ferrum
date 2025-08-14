@@ -13,7 +13,7 @@ Ferrum is a framework for doing RL. Our goals are:
 
 - Create an intuitive API 
 - Ensure a clean separation of concerns so we the core RL ideas are clear and we can swap implementations
-- Keep throughput and resource utilization as high as possible
+- Keep resource utilization as high as possible
 - Make it easy to experiment with various domains and training methodologies.
 
 ### Core `Ferrum` ideas
@@ -58,5 +58,5 @@ Turn 50: "And 50+50?" → Context: [entire conversation history...]
 - `Actor`s will send `TrajectoryShard`s to `Learner`s so we can learn on whatever data we have without waiting for a "batch" of finished trajectories.
 - Since GPU hardware is heterogeneous, and we may want to make special inference optimizations (e.g., use lower precision model weights to speed up calculations), we need to correct for that in `Learner`. In practice it means that, even for on-policy algorithms, we need to account for model differences. This means we need to implement some kind of importance sampling. (See FlashRL)
 - `Learner` and `InferenceClient` GPUs need to sync weights periodically. There are many ways to do this. We want to keep our interface general enough to allow for this.
-- Experimenting with "double buffer" to keep inference GPUs busy. For example: have inference running, get updated weights from `Learner`, quantize the weights while we're still generating, swap weights when quantization is done. The idea, as always, is to do as much work as we can in the background to keep throughput/resource utilization high.
+- Experimenting with "double buffer" to keep inference GPUs busy. For example: have inference running, get updated weights from `Learner`, quantize the weights while we're still generating, swap weights when quantization is done. The idea, as always, is to do as much work as we can in the background to keep resource utilization high.
 - Using Rust. The idea is we'll be able to keep all the glue code and environment execution as efficient and parallelizable as possible.

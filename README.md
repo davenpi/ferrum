@@ -1,6 +1,10 @@
 # Ferrum
 
-This project is me exploring how to build an RL framework in Rust
+A high-performance RL framework in Rust for training LLMs.
+
+## Architecture
+
+For a high-level overview of Ferrum's design and core concepts, see [Archtecture Overview](design/architecture.md)
 
 ## Goals
 
