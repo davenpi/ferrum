@@ -1,8 +1,8 @@
+pub mod codec;
 pub mod error;
 pub mod global;
 pub mod handle;
 pub mod result_source;
-pub mod codec;
 pub mod scheduler;
 pub mod service;
 pub mod task;

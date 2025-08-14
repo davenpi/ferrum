@@ -3,9 +3,9 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use pin_project_lite::pin_project;
 use serde::de::DeserializeOwned;
 use tokio::sync::oneshot;
-use pin_project_lite::pin_project;
 
 use crate::runtime::error::Error;
 use crate::runtime::result_source::{LocalResultSource, ResultSource};
@@ -43,22 +43,16 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
-        
+
         match this.inner.poll(cx) {
             Poll::Pending => Poll::Pending,
-            Poll::Ready(Ok(bytes)) => {
-                match serde_json::from_slice::<T>(&bytes) {
-                    Ok(value) => Poll::Ready(Ok(value)),
-                    Err(e) => Poll::Ready(Err(Error::Deserialize(e.to_string()))),
-                }
-            }
+            Poll::Ready(Ok(bytes)) => match serde_json::from_slice::<T>(&bytes) {
+                Ok(value) => Poll::Ready(Ok(value)),
+                Err(e) => Poll::Ready(Err(Error::Deserialize(e.to_string()))),
+            },
             Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
         }
     }
 }
 
-impl<T> ResultSource<T> for JsonResultSource<T>
-where
-    T: Send + 'static + DeserializeOwned,
-{
-}
+impl<T> ResultSource<T> for JsonResultSource<T> where T: Send + 'static + DeserializeOwned {}
