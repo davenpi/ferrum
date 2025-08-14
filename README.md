@@ -1,15 +1,10 @@
 # Ferrum
 
-This project is me exploring how to bring some of Ray to Rust and then build an RL framework around it.
+This project is me exploring how to build an RL framework in Rust
 
 ## Goals
 
-- [ ] Clean API for Ray-like behavior 
-- [ ] Borrow insights from the SkyRL architecture 
-- [ ] Identify components where Rust makes sense (inference engine, environment, generator)
-- [ ] Reimplement each
-- [ ] Measure performance gains
+- [ ] Design APIs (including errors) first so usage is intuitive
+- [ ] Keep resource utilization as close to 100% as we can
+- [ ] Build Poker agent
 - [ ] Explore new capabilities!
-
-### Ideas
-- [ ] Build RL framework architecture around streaming instead of batching
