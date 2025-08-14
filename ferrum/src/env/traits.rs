@@ -7,6 +7,7 @@ pub trait Env: Send {
 
     fn reset(&mut self) -> Result<Self::Obs, EnvError>;
     fn step(&mut self, act: Self::Act) -> Result<(Self::Obs, f32, bool, Self::Info), EnvError>;
+    fn close(&mut self) -> Result<(), EnvError>;
 }
 
 #[async_trait]
