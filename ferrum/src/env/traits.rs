@@ -1,6 +1,5 @@
 use crate::env::errors::EnvError;
 use async_trait::async_trait;
-
 pub trait Env: Send {
     type Obs: Send + Clone + 'static;
     type Act: Send + Clone + 'static;
