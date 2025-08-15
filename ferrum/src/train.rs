@@ -8,6 +8,14 @@ pub struct TrainConfig {
     pub max_steps: Option<u64>,
     pub max_episodes: Option<u64>,
     pub coordinator_addr: Option<String>,
+
+    pub inference_mode: InferenceMode,
+}
+
+#[derive(Debug, Clone)]
+pub enum InferenceMode {
+    Dedicated, // Inference and training run on different GPUs
+    Colocated, // Inference and training run on the same GPUs (future work)
 }
 
 impl Default for TrainConfig {
@@ -16,6 +24,7 @@ impl Default for TrainConfig {
             max_steps: Some(100_000),
             max_episodes: None,
             coordinator_addr: None,
+            inference_mode: InferenceMode::Dedicated,
         }
     }
 }
