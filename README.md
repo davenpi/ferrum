@@ -1,10 +1,6 @@
 # Ferrum
 
-A high-performance RL framework
-
-## Architecture
-
-For a high-level overview of Ferrum's design and core concepts, see [Archtecture Overview](design/architecture.md)
+RL in Rust
 
 ## Goals
 
