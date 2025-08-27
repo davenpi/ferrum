@@ -1,10 +1,4 @@
-pub mod actor;
-pub mod control;
-pub mod env;
-pub mod inference;
-pub mod inference_old;
-pub mod learner;
-pub mod runtime;
-pub mod train;
+pub mod core;
 
-pub use ferrum_macros::*;
+// Re-export the main traits for easy use
+pub use core::{Agent, Env, train_episode};

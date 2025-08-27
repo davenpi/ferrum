@@ -1,5 +1,5 @@
 [workspace]
-members = ["ferrum", "ferrum-macros"]
+members = ["ferrum"]
 resolver = "2"
 
 # Workspace-level dependencies (optional but helpful)
